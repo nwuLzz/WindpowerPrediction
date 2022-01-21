@@ -14,7 +14,7 @@ from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout
 
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, mean_squared_error
 
 import getdata
 import createDataset
@@ -107,54 +107,63 @@ class NeuralNetwork:
         return model
 
 
-def data_vis(data):
-    """数据可视化"""
-    # 查看风功率变化趋势
-    if len(data) < 10000:  # 限定数据条数才画图，否则会卡死
+def data_vis(data, new_data):
+    """
+    数据可视化
+    data: 原始数据
+    new_data: 剔除限功率时刻后的数据
+    """
+    if len(data) < 50000:  # 限定数据条数才画图，否则会卡死
+        # 查看风功率变化趋势
         plt.figure(figsize=(16, 8))
+        plt.subplot(3, 1, 1)
         plt.plot(data['grGridActivePower'])
-        plt.title('grGridActivePower')
+        plt.title('风功率变化趋势图')
         plt.xlabel('real_time')
-        plt.show()
 
-    # 查看特征与标签之间的关系
-    if len(data) < 10000:  # 限定数据条数才画图，否则会卡死
-        plt.figure(figsize=(16, 8))
-        ax = sns.pointplot(x='grWindSpeed', y='grGridActivePower', data=data)    # 风速与风功率之间的关系
-        ax.set_title('风速与风功率之间的关系')
-        plt.show()
+        # 查看特征与标签之间的关系
+        plt.subplot(3, 2, 3)
+        ax = sns.scatterplot(x='grWindSpeed', y='grGridActivePower', data=data)    # 风速与风功率之间的关系
+        ax.set_title('风功率曲线')
 
-        # plt.figure(figsize=(16, 8))
-        # ax = sns.pointplot(x='grWindDirction', y='grGridActivePower', data=data)    # 风向与风功率之间的关系
-        # ax.set_title('风向与风功率之间的关系')
-        # plt.show()
+        plt.subplot(3, 2, 4)
+        ax = sns.lineplot(x='grWindDirction', y='grGridActivePower', data=data)    # 风向与风功率之间的关系
+        ax.set_title('风向与风功率之间的关系')
 
-        plt.figure(figsize=(16, 8))
+        plt.subplot(3, 3, 7)
         ax = sns.lineplot(x='grOutdoorTemperature', y='grGridActivePower', data=data)    # 室温与风功率之间的关系
         ax.set_title('室温与风功率之间的关系')
-        plt.show()
 
-        plt.figure(figsize=(16, 8))
+        plt.subplot(3, 3, 8)
         ax = sns.pointplot(x='grAirDensity', y='grGridActivePower', data=data)    # 空气密度与风功率之间的关系
         ax.set_title('空气密度与风功率之间的关系')
+
+        plt.subplot(3, 3, 9)
+        ax = sns.pointplot(x='month', y='grGridActivePower', data=data)    # 月份与风功率之间的关系
+        ax.set_title('月份与风功率之间的关系')
         plt.show()
 
-        # plt.figure(figsize=(16, 8))
-        # ax = sns.lineplot(x='month', y='grGridActivePower', data=data)    # 月份与风功率之间的关系
-        # ax.set_title('月份与风功率之间的关系')
-        # plt.show()
-
         plt.figure(figsize=(16, 8))
-        ax = sns.pointplot(x='grWindSpeed', y='grGridActivePower', data=data, hue='month')    # 基于月份统计风速与风功率之间的关系
+        ax = sns.pointplot(x='windspeed_level', y='grGridActivePower', data=data, hue='month')    # 基于月份统计风速与风功率之间的关系
         ax.set_title('基于月份统计风速与风功率之间的关系')
         plt.show()
 
+        plt.figure(figsize=(16, 8))
+        ax = sns.scatterplot(x='grWindSpeed', y='grGridActivePower', data=new_data)  # 风速与风功率之间的关系
+        ax.set_title('风功率曲线（剔除限功率）')
+        plt.show()
 
-def create_time(data):
+
+def create_field(data):
     """创建时间字段，用于分析数据"""
     data['hour'] = data.index.hour
     data['year'] = data.index.year
     data['month'] = data.index.month
+
+    # 风速离散化
+    bins = [0, 2, 4, 6, 8, 10, 12, 25]
+    s = pd.cut(data['grWindSpeed'], bins)
+    data['windspeed_level'] = s
     return data
 
 
@@ -167,7 +176,7 @@ def create_model(train_dataset, train_batch_dataset, test_batch_dataset):
         # return_sequences:每次训练后状态要往后传，所以给True
         Dropout(0.4),
         LSTM(units=256, return_sequences=True),
-        Dropout(0.3),
+        Dropout(0.2),
         LSTM(units=128, return_sequences=True),
         LSTM(units=32),
         Dense(1)        # 1个预测值
@@ -213,7 +222,9 @@ def model_val(model, test_dataset, test_labels):
 
     # 计算R2
     score = r2_score(test_labels, test_preds)
+    mse = mean_squared_error(test_labels, test_preds)
     print("r^2值为：", score)
+    print("mse值为：", mse)
 
     # 绘制 预测与真实值结果
     plt.figure(figsize=(16, 8))
@@ -222,32 +233,47 @@ def model_val(model, test_dataset, test_labels):
     plt.legend(loc='best')
     plt.show()
 
-    return score
+    return score, mse
 
 
 def main():
     st = datetime.datetime.now()
     # 加载数据，查看信息
-    data = pd.read_csv('./data/tmp.csv', parse_dates=['real_time'], index_col=['real_time'])
     # data = getdata.main()
     # data.set_index('real_time', inplace=True)
-    print("\n****************************查看原始数据信息**********************************")
-    print(data.shape)
-    print(data.head())
-    print(data.info())          # 数据集信息，可查看每列非空值
-    print(data.describe())      # 数据集描述，数据分布情况
+    # data = pd.read_csv('./data/30019008_2021_15.csv', parse_dates=['real_time'], index_col=['real_time'])
+    data = pd.read_csv('./data/30019_2021_15.csv', parse_dates=['real_time'], index_col=['wtid', 'real_time'])
+    # print("\n****************************查看原始数据信息**********************************")
+    # print("数据shape：", data.shape)
+    # print("\n数据示例：")
+    # print(data.head())
+    # print("\n数据集信息，每列非空值个数：")
+    # print(data.info())          # 数据集信息，可查看每列非空值
+    # print("\n数据分布情况：")
+    # print(data.describe())      # 数据集描述，数据分布情况
 
-    # 创建时间字段
-    print("\n****************************数据增加时间字段**********************************")
-    data = create_time(data)
-    print(data.head().append(data.tail()))
+    # # 创建时间字段
+    # print("\n****************************数据增加时间字段、风速离散化**********************************")
+    # data = create_field(data)
+    # print(data.head().append(data.tail()))
 
     # 数据可视化
-    data_vis(data)
+    new_data = data[data.gbTurbinePowerLimited == 0]  # 剔除限功率
+    # # 剔除风速大于10且功率低于2000的
+    # new_data = new_data[(new_data.grWindSpeed <= 10) | (new_data.grGridActivePower >= 2000)]
+    # # 功率低于2000的下采样
+    # df1 = new_data[new_data.grGridActivePower < 2000]
+    # df2 = new_data[new_data.grGridActivePower >= 2000]
+    # df3 = df1.sample(frac=0.6, replace=False, random_state=1, axis=0)
+    # new_data = pd.concat([df2, df3])
+    # data_vis(data, new_data)
 
     # 数据预处理，特征工程
     print("\n****************************数据预处理、特征工程**********************************")
-    train_dataset, test_dataset, train_labels, test_labels, train_batch_dataset, test_batch_dataset = createDataset.main(data)
+    # 通过数据可视化发现2月数据缺失，为了防止影响建模效果，只选择3月及之后的数据来建模
+    # data = new_data[new_data.index.month >= 2]
+    new_data.sort_index(inplace=True)
+    train_dataset, test_dataset, train_labels, test_labels, train_batch_dataset, test_batch_dataset = createDataset.main(new_data)
 
     # 模型训练
     print("\n****************************模型训练**********************************")
@@ -255,7 +281,7 @@ def main():
 
     # 模型验证
     print("\n****************************模型验证**********************************")
-    score = model_val(model, test_dataset, test_labels)
+    score, mse = model_val(model, test_dataset, test_labels)
 
     et = datetime.datetime.now()
     dur = (et-st).seconds

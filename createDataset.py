@@ -125,18 +125,22 @@ def data_std(data, power_flag=False):
     # X = data[['grWindSpeed', 'grWindDirction', 'grOutdoorTemperature', 'grAirPressure', 'grAirDensity']]
 
     # # Z-score标准化
-    # ss = StandardScaler()
-    # std_data = ss.fit_transform(X)
+    # scalar = StandardScaler()
+    # std_data = scalar.fit_transform(X)
 
     # # 极差标准化
-    # mm = MinMaxScaler()
-    # std_data = mm.fit_transform(X)
-    # std_df = pd.DataFrame(data=std_data, columns=X.columns, index=data.index)
+    # scalar = MinMaxScaler()
+    # std_data = scalar.fit_transform(data)
+    # data = pd.DataFrame(data=std_data, columns=data.columns, index=data.index)
+    # # 保存模型，为了还原
+    # joblib.dump(scalar, './saved_models/MinMaxScalar.pkl')
 
     # 分别对每个字段进行归一化
     for c in col:
         scalar = MinMaxScaler()
         data[c] = scalar.fit_transform(data[c].values.reshape(-1, 1))
+        if c == 'grGridActivePower':
+            joblib.dump(scalar, './saved_models/MinMaxScalar_y.pkl')    # 保存标签的归一化模型
     print("归一化后的数据示例：\n", data.head())
     return data
 
@@ -145,15 +149,18 @@ def create_dataset(X, y, seq_len=10):
     """seq_len为时间窗口，每seq_len行创建一个block"""
     features = []
     targets = []
+    time_index = []
 
     for i in range(0, len(X) - seq_len, 1):
         data = X.iloc[i:i+seq_len]  # 序列数据
         label = y.iloc[i+seq_len]   # 标签数据  注意不能写错
+        time = y.index[i+seq_len]   # 标签时间
         # 保存到features 和 targets
         features.append(data)
         targets.append(label)
+        time_index.append(time)
 
-    return np.array(features), np.array(targets)    # 要返回array类型
+    return np.array(features), np.array(targets), np.array(time_index)    # 要返回array类型
 
 
 def create_batch_dataset(X, y, train=True, buffer_size=1000, batch_size=32):
@@ -215,12 +222,12 @@ def main(data):
     # 构造特征数据集（为了满足LSTM数据格式要求）
     seq_len = 16    # 滑窗大小，即每个滑窗有几条数据
     # # 构造训练特征数据集
-    train_dataset, train_labels = create_dataset(X_train, y_train, seq_len=seq_len)
+    train_dataset, train_labels, train_times = create_dataset(X_train, y_train, seq_len=seq_len)
     print("特征数据集，训练集、训练标签、测试集、测试标签的shape：")
     print(train_dataset.shape)  # 分别代表：有多少个滑窗、滑窗大小、每条数据有几个特征
     print(train_labels.shape)
     # # 构造测试特征数据集
-    test_dataset, test_labels = create_dataset(X_test, y_test, seq_len=seq_len)
+    test_dataset, test_labels, test_times = create_dataset(X_test, y_test, seq_len=seq_len)
     print(test_dataset.shape)
     print(test_labels.shape)
 
@@ -233,7 +240,7 @@ def main(data):
     # print("测试批数据，其中一个batch_size的样本数据示例：")
     # print(list(test_batch_dataset.as_numpy_iterator())[0])
 
-    return train_dataset, test_dataset, train_labels, test_labels, train_batch_dataset, test_batch_dataset
+    return train_dataset, test_dataset, train_labels, test_labels, train_batch_dataset, test_batch_dataset, test_times
 
 
 if __name__ == '__main__':

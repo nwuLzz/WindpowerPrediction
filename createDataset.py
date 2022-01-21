@@ -106,13 +106,21 @@ class DimReduce:
         return high_corr
 
 
-def data_std(data):
+def data_std(data, power_flag=False):
     """
     数据标准化处理
+    power_flag: 是否处理功率（大于装机容量的功率以装机容量替代、小于零的以零替代）
     """
     col = list(data.columns)
     data[col] = data[col].apply(pd.to_numeric, errors='coerce').fillna(0.0)  # 把所有列的类型都转化为数值型，出错的地方填入NaN，再把NaN的地方补0，否则会报错ValueError: could not convert string to float
     data = pd.DataFrame(data, dtype='float')
+
+    if power_flag:
+        # 大于装机容量的功率应以装机容量替代
+        data.grGridActivePower[data['grGridActivePower'] > 3000] = 3000
+        # 小于零的功率应以零替代
+        data.grGridActivePower[data['grGridActivePower'] < 0] = 0
+
     # Y = data[['grGridActivePower']]
     # X = data[['grWindSpeed', 'grWindDirction', 'grOutdoorTemperature', 'grAirPressure', 'grAirDensity']]
 
@@ -174,11 +182,16 @@ def main(data):
             data.drop(columns=c, inplace=True)
             print("删除无意义列： ", c)
     # 删除多余的列 hour, year, month
-    data.drop(columns=['hour', 'year', 'month'], axis=1, inplace=True)
-    print("删除多余的列 hour, year, month")
+    cand_drop_cols = ['hour', 'year', 'month', 'windspeed_level', 'giWindTurbineOperationMode', 'gbTurbinePowerLimited', 'giWindTurbineYawMode']    # 候选删除列
+    drop_cols = []      # 最终删除列
+    for col in cand_drop_cols:
+        if col in data.columns:
+            drop_cols.append(col)
+    data.drop(columns=drop_cols, axis=1, inplace=True)
+    print("删除多余的列 ", drop_cols)
 
     # step2: 数据标准化
-    data = data_std(data)
+    data = data_std(data, power_flag=True)
 
     # step3: 特征工程
     # 特征数据集
@@ -200,7 +213,7 @@ def main(data):
     print(y_test.shape)
 
     # 构造特征数据集（为了满足LSTM数据格式要求）
-    seq_len = 5    # 滑窗大小，即每个滑窗有几条数据
+    seq_len = 16    # 滑窗大小，即每个滑窗有几条数据
     # # 构造训练特征数据集
     train_dataset, train_labels = create_dataset(X_train, y_train, seq_len=seq_len)
     print("特征数据集，训练集、训练标签、测试集、测试标签的shape：")
@@ -218,7 +231,7 @@ def main(data):
     test_batch_dataset = create_batch_dataset(test_dataset, test_labels, train=False)
     # # 从测试批数据中，获取一个batch_size的样本数据
     # print("测试批数据，其中一个batch_size的样本数据示例：")
-    # list(test_batch_dataset.as_numpy_iterator())[0]
+    # print(list(test_batch_dataset.as_numpy_iterator())[0])
 
     return train_dataset, test_dataset, train_labels, test_labels, train_batch_dataset, test_batch_dataset
 

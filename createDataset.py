@@ -145,16 +145,19 @@ def data_std(data, power_flag=False):
     return data
 
 
-def create_dataset(X, y, seq_len=10):
-    """seq_len为时间窗口，每seq_len行创建一个block"""
+def create_dataset(X, y, seq_len=10, pred_len=16):
+    """
+    seq_len为时间窗口，每seq_len行创建一个block
+    pred_len为预测点数，比如超短时预测包含16个点
+    """
     features = []
     targets = []
     time_index = []
 
-    for i in range(0, len(X) - seq_len, 1):
+    for i in range(0, len(X)-seq_len-pred_len, 1):
         data = X.iloc[i:i+seq_len]  # 序列数据
-        label = y.iloc[i+seq_len]   # 标签数据  注意不能写错
-        time = y.index[i+seq_len]   # 标签时间
+        label = y.iloc[i+seq_len:i+seq_len+pred_len]   # 标签数据  注意不能写错
+        time = y.index[i+seq_len:i+seq_len+pred_len]   # 标签时间
         # 保存到features 和 targets
         features.append(data)
         targets.append(label)
@@ -220,14 +223,15 @@ def main(data):
     print(y_test.shape)
 
     # 构造特征数据集（为了满足LSTM数据格式要求）
-    seq_len = 16    # 滑窗大小，即每个滑窗有几条数据
+    seq_len = 96    # 滑窗大小，即每个滑窗有几条数据
+    pred_len = 16   # 预测几个点
     # # 构造训练特征数据集
-    train_dataset, train_labels, train_times = create_dataset(X_train, y_train, seq_len=seq_len)
+    train_dataset, train_labels, train_times = create_dataset(X_train, y_train, seq_len=seq_len, pred_len=pred_len)
     print("特征数据集，训练集、训练标签、测试集、测试标签的shape：")
     print(train_dataset.shape)  # 分别代表：有多少个滑窗、滑窗大小、每条数据有几个特征
     print(train_labels.shape)
     # # 构造测试特征数据集
-    test_dataset, test_labels, test_times = create_dataset(X_test, y_test, seq_len=seq_len)
+    test_dataset, test_labels, test_times = create_dataset(X_test, y_test, seq_len=seq_len, pred_len=pred_len)
     print(test_dataset.shape)
     print(test_labels.shape)
 

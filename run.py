@@ -6,6 +6,8 @@
 """
 import datetime
 import pandas as pd
+import numpy as np
+import math
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -179,7 +181,7 @@ def create_model(train_dataset, train_batch_dataset, test_batch_dataset):
         Dropout(0.2),
         LSTM(units=128, return_sequences=True),
         LSTM(units=32),
-        Dense(1)        # 1个预测值
+        Dense(16)        # 1个预测值
     ])
 
     # 显示模型结构
@@ -196,7 +198,7 @@ def create_model(train_dataset, train_batch_dataset, test_batch_dataset):
 
     # 模型训练
     history = model.fit(train_batch_dataset,
-                        epochs=10,
+                        epochs=2,       # 迭代次数
                         validation_data=test_batch_dataset,
                         callbacks=[checkpoint_callback])
 
@@ -210,30 +212,65 @@ def create_model(train_dataset, train_batch_dataset, test_batch_dataset):
     return model
 
 
-def model_val(model, test_dataset, test_labels):
-    print(test_dataset.shape)
-    test_preds = model.predict(test_dataset, verbose=1)
-    print(test_preds.shape)
-    print(test_preds[:10])
-    test_preds = test_preds[:, 0]   # 获取列值，为了把2维预测值转成1维，和真实值保持一致
-    print(test_preds[:10])
-    print(test_preds.shape)         # 预测值shape
-    print(test_labels.shape)        # 真实值shape
+def compute_acc(rmse, cap):
+    """
+    计算预测准确率
+    :param rmse:
+    :param cap: 风电场装机容量
+    :return:
+    """
+    return 1 - rmse / cap
+
+
+def model_val(model, test_dataset, test_labels_std, test_times):
+    # print(test_dataset.shape)
+    test_preds_std = model.predict(test_dataset, verbose=1)
+    # test_preds_std = test_preds_std[:, 0]   # 获取列值，为了把2维预测值转成1维（适用于预测1个点），和真实值保持一致
+    print("预测值shape： ", test_preds_std.shape)  # 预测值shape
+    print("真实值shape： ", test_labels_std.shape)  # 真实值shape
+    print("预测值示例（还原前）： ", test_preds_std[:10])
+    print("真实值示例（还原前）： ", test_labels_std[:10])
+
+    # 预测结果还原
+    import joblib
+    scalar_y = joblib.load('./saved_models/MinMaxScalar_y.pkl')
+    # test_preds = scalar_y.inverse_transform(test_preds_std.reshape(-1, 1))
+    # test_labels = scalar_y.inverse_transform(test_labels_std.reshape(-1, 1))
+    test_preds = scalar_y.inverse_transform(test_preds_std)
+    test_labels = scalar_y.inverse_transform(test_labels_std)
+    print("预测值示例（还原后）： ", test_preds[:10])
+    print("真实值示例（还原后）： ", test_labels[:10])
+
+    # 结果保存
+    test_preds_df = pd.DataFrame(data=test_preds, index=test_times[:, 0])
+    test_labels_df = pd.DataFrame(data=test_labels, index=test_times[:, 0])
+    writer = pd.ExcelWriter('超短时预测结果.xlsx', engine='xlsxwriter')
+    test_preds_df.to_excel(writer, sheet_name='预测')
+    test_labels_df.to_excel(writer, sheet_name='实际')
+    writer.save()
+    # df = pd.DataFrame(data=np.concatenate((test_times.reshape(-1, 1), test_preds, test_labels), axis=1),
+    #                   columns=['time', 'test_preds', 'test_labels'])
+    # df.to_excel('pred_results.xlsx')
 
     # 计算R2
-    score = r2_score(test_labels, test_preds)
-    mse = mean_squared_error(test_labels, test_preds)
+    score = r2_score(test_labels[:, 0], test_preds[:, 0])
+    mse = mean_squared_error(test_labels[:, 0], test_preds[:, 0])
+    rmse = math.sqrt(mse)
+    acc = compute_acc(rmse, cap=3000)       # cap为装机容量
     print("r^2值为：", score)
     print("mse值为：", mse)
+    print("rmse值为：", rmse)
+    print("准确率为：", acc)
 
     # 绘制 预测与真实值结果
     plt.figure(figsize=(16, 8))
-    plt.plot(test_labels, label='True value')
-    plt.plot(test_preds, label='Pred value')
+    plt.plot(test_labels[:1000, 0], label='True value')
+    plt.plot(test_preds[:1000, 0], label='Pred value')
+    plt.title('预测功率实际功率对比')
     plt.legend(loc='best')
     plt.show()
 
-    return score, mse
+    return score, mse, rmse, acc
 
 
 def main():
@@ -241,8 +278,8 @@ def main():
     # 加载数据，查看信息
     # data = getdata.main()
     # data.set_index('real_time', inplace=True)
-    # data = pd.read_csv('./data/30019008_2021_15.csv', parse_dates=['real_time'], index_col=['real_time'])
-    data = pd.read_csv('./data/30019_2021_15.csv', parse_dates=['real_time'], index_col=['wtid', 'real_time'])
+    data = pd.read_csv('./data/30019001_2021_15.csv', parse_dates=['real_time'], index_col=['real_time'])
+    # data = pd.read_csv('./data/30019_2021_15.csv', parse_dates=['real_time'], index_col=['wtid', 'real_time'])
     # print("\n****************************查看原始数据信息**********************************")
     # print("数据shape：", data.shape)
     # print("\n数据示例：")
@@ -273,7 +310,8 @@ def main():
     # 通过数据可视化发现2月数据缺失，为了防止影响建模效果，只选择3月及之后的数据来建模
     # data = new_data[new_data.index.month >= 2]
     new_data.sort_index(inplace=True)
-    train_dataset, test_dataset, train_labels, test_labels, train_batch_dataset, test_batch_dataset = createDataset.main(new_data)
+    train_dataset, test_dataset, train_labels, test_labels, train_batch_dataset, test_batch_dataset, test_times = \
+        createDataset.main(new_data)
 
     # 模型训练
     print("\n****************************模型训练**********************************")
@@ -281,7 +319,7 @@ def main():
 
     # 模型验证
     print("\n****************************模型验证**********************************")
-    score, mse = model_val(model, test_dataset, test_labels)
+    score, mse, rmse, acc = model_val(model, test_dataset, test_labels, test_times)
 
     et = datetime.datetime.now()
     dur = (et-st).seconds

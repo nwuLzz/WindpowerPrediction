@@ -113,7 +113,7 @@ def data_vis(data, new_data):
     """
     数据可视化
     data: 原始数据
-    new_data: 剔除限功率时刻后的数据
+    new_data: 异常值处理后的数据
     """
     if len(data) < 50000:  # 限定数据条数才画图，否则会卡死
         # 查看风功率变化趋势
@@ -256,7 +256,7 @@ def model_val(model, test_dataset, test_labels_std, test_times):
     score = r2_score(test_labels[:, 0], test_preds[:, 0])
     mse = mean_squared_error(test_labels[:, 0], test_preds[:, 0])
     rmse = math.sqrt(mse)
-    acc = compute_acc(rmse, cap=3000)       # cap为装机容量
+    acc = compute_acc(rmse, cap=3000*33)       # cap为装机容量
     print("r^2值为：", score)
     print("mse值为：", mse)
     print("rmse值为：", rmse)
@@ -278,8 +278,12 @@ def main():
     # 加载数据，查看信息
     # data = getdata.main()
     # data.set_index('real_time', inplace=True)
-    data = pd.read_csv('./data/30019001_2021_15.csv', parse_dates=['real_time'], index_col=['real_time'])
-    # data = pd.read_csv('./data/30019_2021_15.csv', parse_dates=['real_time'], index_col=['wtid', 'real_time'])
+    data = pd.read_csv('./data/30008/30008_2021_h.csv', parse_dates=['real_time'], index_col=['real_time'])
+    # data = pd.read_csv('./data/30008/30008_2021_h.csv', parse_dates=['real_time'], index_col=['wtid', 'real_time'])
+    et1 = datetime.datetime.now()
+    dur = (et1 - st).seconds
+    print("\n读数据耗时：{}秒".format(dur))
+
     # print("\n****************************查看原始数据信息**********************************")
     # print("数据shape：", data.shape)
     # print("\n数据示例：")
@@ -295,14 +299,7 @@ def main():
     # print(data.head().append(data.tail()))
 
     # 数据可视化
-    new_data = data[data.gbTurbinePowerLimited == 0]  # 剔除限功率
-    # # 剔除风速大于10且功率低于2000的
-    # new_data = new_data[(new_data.grWindSpeed <= 10) | (new_data.grGridActivePower >= 2000)]
-    # # 功率低于2000的下采样
-    # df1 = new_data[new_data.grGridActivePower < 2000]
-    # df2 = new_data[new_data.grGridActivePower >= 2000]
-    # df3 = df1.sample(frac=0.6, replace=False, random_state=1, axis=0)
-    # new_data = pd.concat([df2, df3])
+    new_data = createDataset.pro_abnormal(data)   # 异常值处理
     # data_vis(data, new_data)
 
     # 数据预处理，特征工程
@@ -312,18 +309,27 @@ def main():
     new_data.sort_index(inplace=True)
     train_dataset, test_dataset, train_labels, test_labels, train_batch_dataset, test_batch_dataset, test_times = \
         createDataset.main(new_data)
+    et2 = datetime.datetime.now()
+    dur = (et2 - et1).seconds
+    print("\n预处理及特征工程耗时：{}秒".format(dur))
 
     # 模型训练
     print("\n****************************模型训练**********************************")
     model = create_model(train_dataset, train_batch_dataset, test_batch_dataset)
+    et3 = datetime.datetime.now()
+    dur = (et3 - et2).seconds
+    print("\n模型训练耗时：{}秒".format(dur))
 
     # 模型验证
     print("\n****************************模型验证**********************************")
     score, mse, rmse, acc = model_val(model, test_dataset, test_labels, test_times)
+    et4 = datetime.datetime.now()
+    dur = (et4 - et3).seconds
+    print("\n模型验证耗时：{}秒".format(dur))
 
     et = datetime.datetime.now()
     dur = (et-st).seconds
-    print("\n完成！耗时：{}秒".format(dur))
+    print("\n完成！总耗时：{}秒".format(dur))
 
 
 if __name__ == '__main__':

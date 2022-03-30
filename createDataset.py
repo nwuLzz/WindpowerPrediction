@@ -106,20 +106,13 @@ class DimReduce:
         return high_corr
 
 
-def data_std(data, power_flag=False):
+def data_std(data):
     """
-    数据标准化处理
-    power_flag: 是否处理功率（大于装机容量的功率以装机容量替代、小于零的以零替代）
+        数据标准化处理
     """
     col = list(data.columns)
     data[col] = data[col].apply(pd.to_numeric, errors='coerce').fillna(0.0)  # 把所有列的类型都转化为数值型，出错的地方填入NaN，再把NaN的地方补0，否则会报错ValueError: could not convert string to float
     data = pd.DataFrame(data, dtype='float')
-
-    if power_flag:
-        # 大于装机容量的功率应以装机容量替代
-        data.grGridActivePower[data['grGridActivePower'] > 3000] = 3000
-        # 小于零的功率应以零替代
-        data.grGridActivePower[data['grGridActivePower'] < 0] = 0
 
     # Y = data[['grGridActivePower']]
     # X = data[['grWindSpeed', 'grWindDirction', 'grOutdoorTemperature', 'grAirPressure', 'grAirDensity']]
@@ -139,7 +132,7 @@ def data_std(data, power_flag=False):
     for c in col:
         scalar = MinMaxScaler()
         data[c] = scalar.fit_transform(data[c].values.reshape(-1, 1))
-        if c == 'grGridActivePower':
+        if c == 'farm_power':
             joblib.dump(scalar, './saved_models/MinMaxScalar_y.pkl')    # 保存标签的归一化模型
     print("归一化后的数据示例：\n", data.head())
     return data
@@ -183,31 +176,73 @@ def create_batch_dataset(X, y, train=True, buffer_size=1000, batch_size=32):
         return batch_data.batch(batch_size)
 
 
-def main(data):
-    # step1: 去掉无意义列
-    col = list(data.columns)
-    print("所有字段： ", col)
-    for c in col:
-        if 'Unnamed' in c:
-            data.drop(columns=c, inplace=True)
-            print("删除无意义列： ", c)
-    # 删除多余的列 hour, year, month
-    cand_drop_cols = ['hour', 'year', 'month', 'windspeed_level', 'giWindTurbineOperationMode', 'gbTurbinePowerLimited', 'giWindTurbineYawMode']    # 候选删除列
-    drop_cols = []      # 最终删除列
-    for col in cand_drop_cols:
-        if col in data.columns:
-            drop_cols.append(col)
-    data.drop(columns=drop_cols, axis=1, inplace=True)
-    print("删除多余的列 ", drop_cols)
+def first_can(all_cols):
+    """
+       字段初筛，删除对数据预处理、特征工程无用的字段
+    :param all_cols: 所有字段
+    :return: 初筛后的字段
+    """
+    """
+    # 候选删除列
+    cand_drop_cols = ['Unnamed', 'hour', 'year', 'month', 'windspeed_level', 'giWindTurbineOperationMode',
+                      'gbTurbinePowerLimited', 'giWindTurbineYawMode']
+    # 最终删除列
+    drop_cols = [col for col in cand_drop_cols if col in all_cols]
+    """
+
+    # 备选入模列
+    can_cols = [col for col in all_cols if 'grWindSpeed' in col or 'grWindDirction' in col or
+                'grOutdoorTemperature' in col or 'grAirPressure' in col or
+                'grAirDensity' in col or 'farm_power' in col]
+    return can_cols
+
+
+def pro_abnormal(data_ori):
+    """
+        异常值处理
+    :param data_ori: 原始数据
+    :return: 处理异常值后的数据
+    """
+    # # 剔除限功率
+    # new_data = data_ori[data_ori.gbTurbinePowerLimited == 0]
+
+    # # 剔除风速大于10且功率低于2000的
+    # new_data = new_data[(new_data.grWindSpeed <= 10) | (new_data.grGridActivePower >= 2000)]
+    # # 功率低于2000的下采样
+    # df1 = new_data[new_data.grGridActivePower < 2000]
+    # df2 = new_data[new_data.grGridActivePower >= 2000]
+    # df3 = df1.sample(frac=0.6, replace=False, random_state=1, axis=0)
+    # new_data = pd.concat([df2, df3])
+
+    # # 大于装机容量的功率应以装机容量替代
+    # data_ori.grGridActivePower[data_ori['grGridActivePower'] > 3000] = 3000
+    # # 小于零的功率应以零替代
+    # data_ori.grGridActivePower[data_ori['grGridActivePower'] < 0] = 0
+
+    # 不处理
+    new_data = data_ori
+    return new_data
+
+
+def main(data_ori):
+    # step1: 异常值处理
+    data = pro_abnormal(data_ori)
+
+    # step1: 字段初筛
+    all_cols = list(data.columns)
+    print("所有字段： ", all_cols)
+    can_cols = first_can(all_cols)
+    print("候选入模特征 ", can_cols)
+    data = data[can_cols]
 
     # step2: 数据标准化
-    data = data_std(data, power_flag=True)
+    data = data_std(data)
 
     # step3: 特征工程
     # 特征数据集
-    X = data.drop(columns=['grGridActivePower'], axis=1)
+    X = data.drop(columns=['farm_power'], axis=1)
     # 标签数据集
-    y = data['grGridActivePower']
+    y = data['farm_power']
 
     # 降维
     dr = DimReduce(data=X)

@@ -1,0 +1,10 @@
+**/.idea
+**/data
+**/logs
+**/result
+**/__pycache__/
+venv
+**/image/
+**/pkl
+**/model_result
+**/*.log

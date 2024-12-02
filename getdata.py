@@ -18,7 +18,7 @@ wtgs_num = 25           # 风机数
 
 
 def db_conn():
-    conn = pymysql.connect(host='192.168.0.36', user='liuzhenzhen', passwd='123456', port=5029, db='db'+farm_code+'_2021', charset='utf8')
+    conn = pymysql.connect(host='192.168.0.36', user='***', passwd='***', port=5029, db='db'+farm_code+'_2021', charset='utf8')
     return conn
 
 
